@@ -1,0 +1,43 @@
+# Environment
+.env
+*.env
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+
+# Data files (don't commit user uploads)
+*.csv
+*.xlsx
+*.parquet
+
+# Exports
+*.png
+*.svg
+*.pdf
+
+# Logs
+*.log
