@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "PowerShell(cd \"c:\\\\Users\\\\ayush\\\\OneDrive\\\\Desktop\\\\Ad-hoc_DV_tool\"; .\\\\venv\\\\Scripts\\\\python.exe -m pip install -r requirements.txt --quiet; Write-Host \"Exit code: $LASTEXITCODE\")"
-    ]
-  }
-}
