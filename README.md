@@ -366,6 +366,8 @@ MIT (adjust if needed)
 - [ ] Collaborative sessions (share charts via URL)
 - [ ] Export to PDF reports with multiple charts
 - [ ] Real-time data streaming support
+- [ ] Clear query text box after query is sent
+- [ ] Fix Query processing on niche cases
 
 ---
 
