@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.recommendation.models import ChartSpec
+from src.utils.date_handler import ensure_datetime
 
 
 AGG_FUNCTIONS = {
@@ -19,6 +20,10 @@ class DataTransformer:
     def transform(self, df: pd.DataFrame, spec: ChartSpec) -> pd.DataFrame:
         df = df.copy()
 
+        # Convert datetime columns for proper sorting/rendering
+        for col in df.columns:
+            df[col] = ensure_datetime(df[col])
+
         # Apply filters
         for col, val in (spec.filters or {}).items():
             if col in df.columns:
@@ -31,9 +36,12 @@ class DataTransformer:
         if spec.x_col and spec.y_col and spec.x_col in df.columns and spec.y_col in df.columns:
             df = self._aggregate(df, spec)
 
-        # Sort
+        # Sort (handles datetime properly now)
         if spec.sort_order and spec.y_col and spec.y_col in df.columns:
             df = df.sort_values(spec.y_col, ascending=(spec.sort_order == "asc"))
+        # For temporal x-axis, ensure proper sorting
+        elif spec.x_col and pd.api.types.is_datetime64_any_dtype(df.get(spec.x_col)):
+            df = df.sort_values(spec.x_col)
 
         # Top N
         if spec.top_n and spec.top_n > 0:

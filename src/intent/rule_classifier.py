@@ -43,6 +43,9 @@ INTENT_PATTERNS: dict[QueryIntent, list[str]] = {
     QueryIntent.GEOGRAPHIC: [
         r"\bmap\b", r"\bcountry\b", r"\bregion\b", r"\bstate\b",
         r"\bcity\b", r"\bgeograph(y|ic)\b", r"\blocation\b",
+        r"\bby location\b", r"\bby (region|country|state|city)\b",
+        r"\blatitude\b", r"\blongitude\b", r"\blat[-/]lon\b",
+        r"\bchoropleth\b", r"\bgeo\b", r"\bspatial\b",
     ],
     QueryIntent.ANOMALY: [
         r"\boutlier\b", r"\banomal(y|ies)\b", r"\bspike\b", r"\bdrop\b",

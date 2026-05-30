@@ -208,6 +208,25 @@ def _scatter_matrix(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     )
 
 
+@register("choropleth")
+def _choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
+    return px.choropleth(
+        df, locations=spec.x_col, color=spec.y_col,
+        locationmode="country names",
+        color_continuous_scale="Viridis",
+    )
+
+
+@register("bubble_map")
+def _bubble_map(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
+    return px.scatter_geo(
+        df, locations=spec.x_col, size=spec.y_col,
+        locationmode="country names",
+        color=spec.color_col,
+        color_discrete_sequence=THEME["colors"],
+    )
+
+
 @register("scatter_geo")
 def _scatter_geo(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     """Scatter map using latitude/longitude coordinates."""
@@ -224,6 +243,7 @@ def _scatter_geo(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
 @register("state_choropleth")
 def _state_choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     """US state-level choropleth map."""
+    # Prepare state codes
     state_mapping = {
         "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
         "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
@@ -241,6 +261,7 @@ def _state_choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     }
 
     df_copy = df.copy()
+    # Convert state names to ISO codes if needed
     if spec.x_col and spec.x_col in df_copy.columns:
         df_copy[spec.x_col] = df_copy[spec.x_col].str.lower().map(
             lambda x: state_mapping.get(x, x.upper() if len(str(x)) == 2 else x)
@@ -263,65 +284,7 @@ def _state_choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
             lakecolor="rgb(255, 255, 255)",
         ),
     )
-    return fig
-
-
-@register("choropleth_enhanced")
-def _choropleth_enhanced(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
-    """Country-level choropleth with ISO code support."""
-    df_copy = df.copy()
-
-    if spec.x_col in df_copy.columns:
-        sample = df_copy[spec.x_col].astype(str).head(10)
-        if sample.str.len().eq(3).sum() > len(sample) * 0.5:
-            locationmode = "ISO-3"
-        elif sample.str.len().eq(2).sum() > len(sample) * 0.5:
-            locationmode = "ISO-2"
-        else:
-            locationmode = "country names"
-    else:
-        locationmode = "country names"
-
-    return px.choropleth(
-        df_copy, locations=spec.x_col, color=spec.y_col,
-        locationmode=locationmode,
-        color_continuous_scale="Viridis",
-        labels={spec.y_col: spec.y_label or spec.y_col},
-    )
-
-
-@register("choropleth")
-def _choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
-    return px.choropleth(
-        df, locations=spec.x_col, color=spec.y_col,
-        locationmode="country names",
-        color_continuous_scale="Viridis",
-    )
-
-
-@register("bubble_map")
-def _bubble_map(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
-    return px.scatter_geo(
-        df, locations=spec.x_col, size=spec.y_col,
-        locationmode="country names",
-        color=spec.color_col,
-        color_discrete_sequence=THEME["colors"],
-    )
-
-
-@register("radar")
-def _radar(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
-    fig = go.Figure()
-    categories = df[spec.x_col].tolist() if spec.x_col else []
-    values = df[spec.y_col].tolist() if spec.y_col else []
-    fig.add_trace(go.Scatterpolar(
-        r=values + values[:1],
-        theta=categories + categories[:1],
-        fill="toself",
-        line_color=THEME["colors"][0],
-    ))
-    fig.update_layout(polar={"radialaxis": {"visible": True}})
-    return fig
+    return fig\n\n\n@register("choropleth_enhanced")\ndef _choropleth_enhanced(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:\n    """Country-level choropleth with ISO code support.\"\"\"\n    df_copy = df.copy()\n    \n    # Detect location mode based on data patterns\n    if spec.x_col in df_copy.columns:\n        sample = df_copy[spec.x_col].astype(str).head(10)\n        # Check for ISO3 codes (3 letters)\n        if sample.str.len().eq(3).sum() > len(sample) * 0.5:\n            locationmode = "ISO-3"\n        # Check for ISO2 codes (2 letters)\n        elif sample.str.len().eq(2).sum() > len(sample) * 0.5:\n            locationmode = "ISO-2"\n        else:\n            locationmode = "country names"\n    else:\n        locationmode = "country names"\n    \n    return px.choropleth(\n        df_copy, locations=spec.x_col, color=spec.y_col,\n        locationmode=locationmode,\n        color_continuous_scale="Viridis",\n        labels={spec.y_col: spec.y_label or spec.y_col},\n    )\n\n\n@register("radar")\ndef _radar(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:\n    fig = go.Figure()\n    categories = df[spec.x_col].tolist() if spec.x_col else []\n    values = df[spec.y_col].tolist() if spec.y_col else []\n    fig.add_trace(go.Scatterpolar(\n        r=values + values[:1],\n        theta=categories + categories[:1],\n        fill="toself",\n        line_color=THEME["colors"][0],\n    ))\n    fig.update_layout(polar={"radialaxis": {"visible": True}})\n    return fig
 
 
 # ── public renderer ───────────────────────────────────────────────────

@@ -81,9 +81,25 @@ class ChartRecommendationEngine:
             return ["horizontal_bar", "bar", "lollipop"]
 
         if i == QueryIntent.GEOGRAPHIC:
-            if geo:
+            if not geo:
+                return ["bar", "horizontal_bar"]
+            
+            # Check for lat/lon coordinates
+            has_lat = any(c.name.lower() in {"lat", "latitude"} for c in geo)
+            has_lon = any(c.name.lower() in {"lon", "longitude", "long"} for c in geo)
+            
+            # Check for state/country data
+            has_state = any("state" in c.name.lower() for c in geo)
+            has_country = any("country" in c.name.lower() for c in geo)
+            
+            if has_lat and has_lon:
+                return ["scatter_geo", "bubble_map", "bar"]
+            elif has_state:
+                return ["state_choropleth", "bar", "horizontal_bar"]
+            elif has_country:
+                return ["choropleth_enhanced", "choropleth", "bubble_map"]
+            else:
                 return ["choropleth", "bubble_map", "bar"]
-            return ["bar", "horizontal_bar"]
 
         if i == QueryIntent.ANOMALY:
             return ["box", "scatter", "violin"]
@@ -141,10 +157,19 @@ class ChartRecommendationEngine:
             y = pick(u.measures, targeted)
             return x, y, None
 
-        if chart_type in {"choropleth", "bubble_map"}:
+        if chart_type in {"choropleth", "choropleth_enhanced", "bubble_map", "state_choropleth"}:
             x = pick(u.geo_columns, targeted) or pick(u.dimensions, targeted)
             y = pick(u.measures, targeted)
             return x, y, None
+        
+        if chart_type == "scatter_geo":
+            # For scatter_geo: x=latitude, y=longitude (swapped due to geo projection)
+            lat = next((c.name for c in u.geo_columns if c.name.lower() in {"lat", "latitude"}), None)
+            lon = next((c.name for c in u.geo_columns if c.name.lower() in {"lon", "longitude", "long"}), None)
+            x = lat or pick(u.geo_columns, targeted)
+            y = lon or (pick([c for c in u.geo_columns if c.name != x], targeted) if x else None)
+            color = pick(u.measures, targeted) or pick(u.dimensions, targeted)
+            return x, y, color
 
         # Default: bar, line, area, horizontal_bar, grouped_bar, lollipop, radar
         if u.temporals and chart_type in {"line", "area"}:

@@ -9,20 +9,20 @@ from scipy import stats
 
 from src.ingestion.models import DataProfile
 from src.understanding.models import ColumnProfile, ColumnRole, DataUnderstanding
-
-
-GEO_HINTS = {
-    "country", "state", "city", "region", "zipcode", "zip", "zip_code",
-    "lat", "lon", "latitude", "longitude", "iso", "fips", "continent",
-    "province", "district", "county", "geoid",
-}
-
-DATE_FORMATS = [
-    "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
-    "%Y/%m/%d", "%Y%m%d", "%b %d %Y", "%B %d %Y",
-    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S",
-    "%d %b %Y", "%d %B %Y",
-]
+from src.utils.date_handler import (
+    DATE_FORMATS,
+    is_temporal,
+    parse_date_column,
+    infer_granularity as infer_date_granularity,
+)
+from src.utils.geo_handler import (
+    GEO_HINTS,
+    is_latitude_column,
+    is_longitude_column,
+    is_country_column,
+    is_state_column,
+    detect_geo_type,
+)
 
 IDENTIFIER_RATIO = 0.95
 NUMERIC_RATIO_THRESHOLD = 0.85
@@ -93,17 +93,23 @@ class DataUnderstandingEngine:
     ) -> ColumnRole:
         name_lower = name.lower()
 
-        # Geographic — name-based signal is strong
+        # Geographic — check both name hints and actual data validity
         if any(hint in name_lower for hint in GEO_HINTS):
-            numeric = pd.to_numeric(s, errors="coerce")
-            if name_lower in {"lat", "latitude", "lon", "longitude"}:
-                if numeric.notna().mean() > 0.8:
-                    return ColumnRole.GEOGRAPHIC
-            else:
+            # Validate coordinates
+            if is_latitude_column(name, s) or is_longitude_column(name, s):
                 return ColumnRole.GEOGRAPHIC
+            # Validate country/state
+            if is_country_column(s) or is_state_column(s):
+                return ColumnRole.GEOGRAPHIC
+            # Generic geo hint without validation
+            return ColumnRole.GEOGRAPHIC
+        
+        # Check for geographic data even without name hints
+        if detect_geo_type(name, s) is not None:
+            return ColumnRole.GEOGRAPHIC
 
         # Temporal
-        if self._is_temporal(s):
+        if is_temporal(s):
             return ColumnRole.TEMPORAL
 
         # Numeric path
@@ -134,25 +140,8 @@ class DataUnderstandingEngine:
         return ColumnRole.DIMENSION
 
     def _is_temporal(self, s: pd.Series) -> bool:
-        if pd.api.types.is_datetime64_any_dtype(s):
-            return True
-        sample = s.dropna().astype(str).head(20)
-        if len(sample) == 0:
-            return False
-        success = 0
-        for fmt in DATE_FORMATS:
-            try:
-                parsed = pd.to_datetime(sample, format=fmt, errors="coerce")
-                success = max(success, int(parsed.notna().sum()))
-            except Exception:
-                continue
-        # Also try pandas inference
-        try:
-            parsed = pd.to_datetime(sample, infer_datetime_format=True, errors="coerce")
-            success = max(success, int(parsed.notna().sum()))
-        except Exception:
-            pass
-        return success / max(len(sample), 1) >= 0.7
+        """Check if series represents temporal data."""
+        return is_temporal(s)
 
     def _enrich_measure(self, cp: ColumnProfile, s: pd.Series) -> None:
         numeric = pd.to_numeric(s, errors="coerce").dropna()
@@ -167,24 +156,11 @@ class DataUnderstandingEngine:
         cp.distribution = self._classify_distribution(numeric)
 
     def _enrich_temporal(self, cp: ColumnProfile, s: pd.Series) -> None:
-        parsed: Optional[pd.Series] = None
-        for fmt in DATE_FORMATS:
-            try:
-                p = pd.to_datetime(s.astype(str), format=fmt, errors="coerce")
-                if p.notna().mean() > 0.7:
-                    parsed = p
-                    cp.date_format = fmt
-                    break
-            except Exception:
-                continue
+        parsed, fmt = parse_date_column(s, strict=False)
         if parsed is None:
-            try:
-                parsed = pd.to_datetime(s, infer_datetime_format=True, errors="coerce")
-                cp.date_format = "inferred"
-            except Exception:
-                return
-        if parsed is not None and parsed.notna().any():
-            cp.time_granularity = self._infer_granularity(parsed.dropna())
+            return
+        cp.date_format = fmt
+        cp.time_granularity = infer_date_granularity(parsed.dropna())
 
     def _detect_outliers(self, s: pd.Series) -> bool:
         if len(s) < 4:
@@ -213,23 +189,8 @@ class DataUnderstandingEngine:
         return "approximately_normal"
 
     def _infer_granularity(self, dates: pd.Series) -> str:
-        try:
-            parsed = pd.to_datetime(dates, errors="coerce").dropna()
-            if len(parsed) < 2:
-                return "day"
-            diffs = parsed.sort_values().diff().dropna()
-            median_days = diffs.dt.days.median()
-            if median_days <= 1:
-                return "hour"
-            if median_days <= 7:
-                return "day"
-            if median_days <= 35:
-                return "month"
-            if median_days <= 100:
-                return "quarter"
-            return "year"
-        except Exception:
-            return "day"
+        """Infer temporal granularity from date series."""
+        return infer_date_granularity(dates)
 
     def _suggest_grain(self, u: DataUnderstanding) -> Optional[str]:
         if not u.has_time_series:
