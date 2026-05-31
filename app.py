@@ -130,6 +130,14 @@ with st.expander("Dataset Schema", expanded=False):
 
 st.markdown("---")
 
+if "query_input" not in st.session_state:
+    st.session_state["query_input"] = ""
+if "clear_query_input" not in st.session_state:
+    st.session_state["clear_query_input"] = False
+if st.session_state["clear_query_input"]:
+    st.session_state["query_input"] = ""
+    st.session_state["clear_query_input"] = False
+
 # ── query input ───────────────────────────────────────────────────────
 col_q, col_btn = st.columns([5, 1])
 with col_q:
@@ -137,6 +145,8 @@ with col_q:
         "Ask a question about your data",
         placeholder="e.g. Show top 10 categories by revenue",
         label_visibility="collapsed",
+        value=st.session_state["query_input"],
+        key="query_input",
     )
 with col_btn:
     run = st.button("Visualize", type="primary", use_container_width=True)
@@ -243,6 +253,7 @@ if run and query.strip():
     if "query_history" not in st.session_state:
         st.session_state["query_history"] = []
     st.session_state["query_history"].append(query)
+    st.session_state["clear_query_input"] = True
 
 # ── query history ─────────────────────────────────────────────────────
 if st.session_state.get("query_history"):
