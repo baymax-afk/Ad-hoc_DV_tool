@@ -89,7 +89,6 @@ if uploaded_file is not None:
                 st.error(f"Ingestion failed: {e}")
                 st.stop()
 
-# ── main area ─────────────────────────────────────────────────────────
 if "understanding" not in st.session_state:
     st.markdown(
         """
@@ -113,7 +112,6 @@ if "understanding" not in st.session_state:
 profile = st.session_state["profile"]
 understanding = st.session_state["understanding"]
 
-# ── schema explorer (expandable) ──────────────────────────────────────
 with st.expander("Dataset Schema", expanded=False):
     import pandas as pd
     schema_data = [
@@ -130,28 +128,28 @@ with st.expander("Dataset Schema", expanded=False):
 
 st.markdown("---")
 
-if "query_input" not in st.session_state:
-    st.session_state["query_input"] = ""
-if "clear_query_input" not in st.session_state:
-    st.session_state["clear_query_input"] = False
-if st.session_state["clear_query_input"]:
-    st.session_state["query_input"] = ""
-    st.session_state["clear_query_input"] = False
+def _on_visualize():
+    q = st.session_state.get("query_input", "").strip()
+    if q:
+        st.session_state["pending_query"] = q
+        st.session_state["query_input"] = ""
 
-# ── query input ───────────────────────────────────────────────────────
 col_q, col_btn = st.columns([5, 1])
 with col_q:
     query = st.text_input(
         "Ask a question about your data",
         placeholder="e.g. Show top 10 categories by revenue",
         label_visibility="collapsed",
-        value=st.session_state["query_input"],
         key="query_input",
     )
 with col_btn:
-    run = st.button("Visualize", type="primary", use_container_width=True)
+    run = st.button(
+        "Visualize", 
+        type="primary", 
+        use_container_width=True, 
+        on_click=_on_visualize,
+    )
 
-# ── advanced options ──────────────────────────────────────────────────
 with st.expander("Advanced options", expanded=False):
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -164,11 +162,12 @@ with st.expander("Advanced options", expanded=False):
     with col3:
         agg_override = st.selectbox("Aggregation", ["(auto)", "sum", "avg", "count", "max", "min"])
 
-# ── query execution ───────────────────────────────────────────────────
-if run and query.strip():
+pending = st.session_state.pop("pending_query", None)
+
+if pending:
     with st.spinner("Detecting intent…"):
         try:
-            intent = svc["intent_detector"].detect(query, understanding)
+            intent = svc["intent_detector"].detect(pending, understanding)
         except IntentError as e:
             st.error(f"Could not understand query: {e}")
             st.stop()
@@ -252,10 +251,8 @@ if run and query.strip():
     # History
     if "query_history" not in st.session_state:
         st.session_state["query_history"] = []
-    st.session_state["query_history"].append(query)
-    st.session_state["clear_query_input"] = True
+    st.session_state["query_history"].append(pending)
 
-# ── query history ─────────────────────────────────────────────────────
 if st.session_state.get("query_history"):
     with st.sidebar:
         st.markdown("### Recent Queries")
