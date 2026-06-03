@@ -15,19 +15,31 @@ class VisualizationPipeline:
         self._transformer = DataTransformer()
         self._renderer = PlotlyRenderer()
 
-    def run(self, profile: DataProfile, specs: list[ChartSpec]) -> list[tuple[ChartSpec, go.Figure]]:
+    def run(self, profile: DataProfile, specs: list[ChartSpec]) -> list[tuple[ChartSpec, go.Figure, bool, str]]:
         results = []
-        for spec in specs:
+        is_fallback = False
+        warning_msg = ""
+        for i, spec in enumerate(specs):
             try:
-                # We need to pass understanding if we had it, but for pipeline run it's optional.
                 df = self._transformer.transform(profile.df, spec)
                 if df.empty:
+                    if i == 0:
+                        is_fallback = True
+                        warning_msg = f"Data was empty for chart type '{spec.chart_type}'. Falling back to alternative."
                     continue
                 fig = self._renderer.render(df, spec)
-                results.append((spec, fig))
+                
+                if i > 0 and not is_fallback:
+                    is_fallback = True
+                    warning_msg = f"Failed to render primary chart. Fell back to '{spec.chart_type}'."
+                    
+                results.append((spec, fig, is_fallback, warning_msg))
             except Exception as e:
                 import logging
                 logging.warning(f"Failed to render chart {spec.chart_type}: {e}")
+                if i == 0:
+                    is_fallback = True
+                    warning_msg = f"Failed to render chart type '{spec.chart_type}': {e}. Falling back to alternative."
                 continue
         return results
         

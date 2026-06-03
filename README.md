@@ -50,23 +50,25 @@ Then open [http://localhost:8501](http://localhost:8501) in your browser.
 - **Temporal detection:** automatically identifies date columns and time granularity
 
 ### 💬 Natural Language Intent Detection
-- **Tier-1 (rule-based):** Fast, regex-powered classification (< 5ms)
-- **Tier-2 (LLM fallback):** Claude-powered for ambiguous queries
-- **Supported intents:** trend, comparison, ranking, distribution, correlation, composition, geographic, anomaly, summary
+- **Tier-1 (LLM-Primary):** Claude-powered intent extraction with rule-based hints.
+- **Tier-2 (Rule fallback):** Fast, regex-powered classification when LLM is unavailable.
+- **Robust Date Parsing:** Extracts relative dates (e.g., "last month", "Q3") into strict ISO filters.
+- **Supported intents:** trend, comparison, ranking, distribution, correlation, composition, geographic, anomaly, summary, multi_dimension, faceted, combined
 
 ### 📈 Intelligent Chart Recommendation
+- **Multi-Chart Generation:** Recommends and renders 3-5 valid charts simultaneously for complex queries.
 - **20 chart types:** bar, line, scatter, pie, histogram, heatmap, choropleth, treemap, radar, and more
 - **Decision tree:** matches intent + data shape → best chart automatically
-- **Alternatives:** one-click switch between recommended chart types
 
-### 🎨 Interactive Visualization
+### 🎨 Interactive Visualization & Chat UI
+- **Persistent Chat:** Intuitive chat interface preserving conversation history across queries.
+- **Multi-Tab Layout:** View multiple generated charts side-by-side in Streamlit tabs.
 - **Plotly-powered:** fully interactive charts (zoom, pan, hover tooltips)
-- **Responsive design:** charts adapt to your data size
 - **Export:** download as PNG or SVG (requires kaleido)
 
 ### 💡 AI-Powered Insights
-- **Statistical findings:** missing data, outliers, correlations, skewness
-- **Business narrative:** Claude generates 3-5 actionable insights per chart
+- **Dataset Analysis:** Automatically profiles and summarizes uploaded datasets to suggest angles.
+- **Narrative Insights:** Claude generates specific, actionable business insights grounded in statistical findings.
 - **Optional:** works without API key; LLM features gracefully disabled
 
 ---
@@ -99,13 +101,13 @@ DataUnderstandingEngine (type inference, statistical profiling)
     ↓
 IntentDetector (rule-based → LLM fallback)
     ↓
-ChartRecommendationEngine (decision tree)
+ChartRecommendationEngine (decision tree → multi-chart list)
     ↓
-VisualizationPipeline (transform → render with Plotly)
+VisualizationPipeline (transform w/ dates → parallel render with Plotly)
     ↓
-InsightBundle (statistical + narrative)
+InsightBundle (statistical + DatasetAnalyst narrative)
     ↓
-Streamlit UI (interactive chart + insights)
+Streamlit Chat UI (interactive charts in tabs + insights)
 ```
 
 6 phases, 39 files, zero external APIs required for core functionality.
@@ -126,7 +128,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 # Optional: choose Claude model (default: claude-sonnet-4-6)
 LLM_MODEL=claude-sonnet-4-6
-# Other options: claude-opus-4-7, claude-haiku-4-5-20251001
 
 # Optional: session and file limits
 SESSION_TTL_SECONDS=3600        # Session expiry (1 hour)
@@ -362,7 +363,7 @@ MIT (adjust if needed)
 - [ ] Support Parquet/Excel/JSON file formats
 - [ ] Advanced filtering UI (date ranges, multi-select)
 - [ ] Chart customization (colors, titles, axis labels)
-- [ ] Query history & saved visualizations
+- [x] Query history & saved visualizations (now supported via Chat UI)
 - [ ] Collaborative sessions (share charts via URL)
 - [ ] Export to PDF reports with multiple charts
 - [ ] Real-time data streaming support

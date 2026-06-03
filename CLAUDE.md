@@ -7,8 +7,7 @@ End-to-end system that ingests CSV files, understands their structure, and gener
 
 ```
 CSV Upload → DataIngestor → DataUnderstandingEngine → IntentDetector
-                                                             ↓
-                              InsightBundle ← VisualizationPipeline ← ChartRecommendationEngine
+                               InsightBundle ← VisualizationPipeline ← ChartRecommendationEngine (Multi-Chart)
 ```
 
 ### Phase 1 — Data Ingestion (`src/ingestion/`)
@@ -22,26 +21,28 @@ CSV Upload → DataIngestor → DataUnderstandingEngine → IntentDetector
 - `DataUnderstanding`: grouped column lists, has_time_series flag, llm_summary
 
 ### Phase 3 — Intent Detection (`src/intent/`)
-- Tier 1: `RuleIntentClassifier` — regex patterns, < 5ms, confidence threshold 0.6
-- Tier 2: `LLMIntentClassifier` — Claude Sonnet, structured JSON output, fallback only
-- Intents: distribution, trend, comparison, correlation, composition, ranking, geographic, anomaly, summary
-- `IntentResult`: intent, confidence, target_columns, filters, aggregation, group_by, top_n
+- `QueryPreprocessor`: Normalizes conversational dates (e.g., "last month") into ISO boundaries.
+- Tier 1: `LLMIntentClassifier` — Claude Sonnet, structured JSON output, includes history and rule hints.
+- Tier 2: `RuleIntentClassifier` — regex patterns, fast fallback when LLM is unavailable.
+- Intents: distribution, trend, comparison, correlation, composition, ranking, geographic, anomaly, summary, multi_dimension, faceted, combined
+- `IntentResult`: intent, confidence, target_columns, filters (date_filter), aggregation, group_by, top_n
 
 ### Phase 4 — Chart Recommendation (`src/recommendation/`)
-- `ChartRecommendationEngine`: deterministic decision tree → top-3 candidates
+- `ChartRecommendationEngine`: deterministic decision tree → returns list of `ChartSpec`
 - Decision matrix: intent × measure_count × dimension_cardinality × has_temporal
-- `ChartSpec`: chart_type, x_col, y_col, color_col, size_col, aggregation, title, alternatives
+- Supports multi-chart outputs (faceted, colored grids, combined charts).
 
 ### Phase 5 — Rendering (`src/rendering/`)
-- `DataTransformer`: filter → aggregate → sort → top-N
+- `DataTransformer`: date filter parsing → general filter → aggregate → sort → top-N
+- `VisualizationPipeline`: Run parallel execution on `list[ChartSpec]` returning `list[tuple[ChartSpec, Figure]]`
 - `PlotlyRenderer`: @register decorator per chart type → Plotly Express/GO figure
 - `FigureDecorator`: theme (plotly_white), layout polish, legend positioning
 - Export via kaleido (PNG/SVG/PDF)
 
 ### Phase 6 — Insights (`src/insights/`)
 - `StatisticalAnalyzer`: missing data, outliers (3×IQR), correlations (r≥0.7), trend direction
-- `LLMNarrator`: Claude Sonnet, 3–5 actionable business insights, async
-- `InsightBundle`: list[StatInsight] + list[str] narrative
+- `DatasetAnalyst`: Profiles whole dataset natively on upload and narrate 3-5 business insights post-query.
+- `LLMNarrator`: Generates natural language summary of statistical properties.
 
 ## API (`src/api/`)
 - `POST /api/v1/sessions` → session_id
@@ -52,7 +53,7 @@ CSV Upload → DataIngestor → DataUnderstandingEngine → IntentDetector
 - `GET  /api/v1/sessions/{id}/export` → PNG/PDF blob
 
 ## Entry Points
-- `app.py` — Streamlit UI (MVP frontend)
+- `app.py` — Streamlit Persistent Chat UI (MVP frontend)
 - `src/api/main.py` — FastAPI backend
 
 ## Key Libraries
@@ -61,7 +62,7 @@ CSV Upload → DataIngestor → DataUnderstandingEngine → IntentDetector
 - rapidfuzz — fuzzy column matching
 - plotly, kaleido — rendering + export
 - fastapi, pydantic-settings — API
-- anthropic — LLM (Claude Sonnet 4.6)
+- anthropic — LLM (Claude 3.5 Sonnet)
 - streamlit — UI
 
 ## Edge Cases to Handle

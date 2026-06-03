@@ -112,6 +112,7 @@ class RuleIntentClassifier:
             aggregation=self._extract_aggregation(q),
             top_n=self._extract_top_n(q),
             tier="rule",
+            explicit_chart_type=self._extract_explicit_chart(q),
         )
 
     # ------------------------------------------------------------------
@@ -145,3 +146,17 @@ class RuleIntentClassifier:
                 if val_str in q:
                     filters[col.name] = val
         return filters
+
+    def _extract_explicit_chart(self, q: str) -> Optional[str]:
+        chart_types = [
+            "bar", "line", "scatter", "pie", "histogram", "heatmap", 
+            "choropleth", "treemap", "radar", "grouped_bar", "horizontal_bar", 
+            "area", "donut", "sunburst", "bubble_map", "scatter_matrix", 
+            "box", "violin", "bubble"
+        ]
+        chart_types_sorted = sorted(chart_types, key=len, reverse=True)
+        for ct in chart_types_sorted:
+            clean_ct = ct.replace("_", " ")
+            if re.search(r'\b' + re.escape(clean_ct) + r'(?:\s+chart|plot|map)?\b', q):
+                return ct
+        return None

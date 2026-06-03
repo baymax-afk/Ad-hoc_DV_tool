@@ -237,7 +237,10 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     ai_insight = "Enable AI analysis by adding ANTHROPIC_API_KEY to .env"
 
                 charts_data = []
-                for spec, fig in results:
+                fallback_warning = None
+                for spec, fig, is_fallback, warning_msg in results:
+                    if is_fallback and not fallback_warning:
+                        fallback_warning = warning_msg
                     charts_data.append({
                         "title": spec.title or spec.chart_type,
                         "subtitle": spec.subtitle,
@@ -248,6 +251,9 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
                     "stat": [f"[{i.severity}] {i.description}" for i in stat_insights],
                     "ai": ai_insight
                 }
+                
+                if fallback_warning:
+                    insights_data["stat"].insert(0, f"[WARNING] {fallback_warning}")
 
                 content = f"Based on your query, here is the analysis."
                 

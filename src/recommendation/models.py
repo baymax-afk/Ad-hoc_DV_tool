@@ -10,6 +10,8 @@ class ChartSpec:
     color_col: Optional[str] = None
     size_col: Optional[str] = None
     facet_col: Optional[str] = None
+    lat_col: Optional[str] = None
+    lon_col: Optional[str] = None
     aggregation: str = "sum"
     sort_order: Optional[str] = None    # asc|desc
     top_n: Optional[int] = None

@@ -49,7 +49,8 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks, no explanati
   "aggregation": null,
   "group_by": null,
   "sort_order": null, // "asc" for bottom/worst, "desc" for top/best
-  "top_n": null
+  "top_n": null,
+  "explicit_chart_type": null // e.g. "bar", "pie", "scatter", "heatmap" if explicitly requested
 }}
 """
 
@@ -99,5 +100,6 @@ class LLMIntentClassifier:
             sort_order=data.get("sort_order"),
             top_n=data.get("top_n"),
             tier="llm",
+            explicit_chart_type=data.get("explicit_chart_type"),
             raw_llm_response=data,
         )

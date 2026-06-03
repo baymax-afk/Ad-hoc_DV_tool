@@ -17,7 +17,7 @@ class ChartRecommendationEngine:
         
         specs = []
         for chart_type in candidates:
-            x, y, color = self._assign_columns(chart_type, intent, understanding)
+            x, y, color, lat, lon = self._assign_columns(chart_type, intent, understanding)
             title, subtitle = self._build_titles(chart_type, intent, x, y)
             
             spec = ChartSpec(
@@ -25,6 +25,8 @@ class ChartRecommendationEngine:
                 x_col=x,
                 y_col=y,
                 color_col=color,
+                lat_col=lat,
+                lon_col=lon,
                 aggregation=intent.aggregation or "sum",
                 sort_order=intent.sort_order,
                 top_n=intent.top_n,
@@ -172,69 +174,82 @@ class ChartRecommendationEngine:
         high_card = primary_dim is not None and primary_dim.cardinality > HIGH_CARDINALITY
         multi_measure = len(measures) > 1
 
+        candidates = []
+        
         if i == QueryIntent.TREND:
             if temporals:
-                return ["line", "area", "bar"]
-            return ["line", "bar"]
+                candidates.extend(["line", "area", "bar"])
+            else:
+                candidates.extend(["line", "bar"])
 
-        if i == QueryIntent.DISTRIBUTION:
+        elif i == QueryIntent.DISTRIBUTION:
             if primary_dim:
-                return ["box", "violin", "histogram"]
-            return ["histogram", "box"]
+                candidates.extend(["box", "violin", "histogram"])
+            else:
+                candidates.extend(["histogram", "box"])
 
-        if i == QueryIntent.COMPARISON:
+        elif i == QueryIntent.COMPARISON:
             if multi_measure:
-                return ["grouped_bar", "radar", "line"]
-            if high_card:
-                return ["horizontal_bar", "bar", "treemap"]
-            return ["bar", "grouped_bar", "horizontal_bar"]
+                candidates.extend(["grouped_bar", "radar", "line"])
+            elif high_card:
+                candidates.extend(["horizontal_bar", "bar", "treemap"])
+            else:
+                candidates.extend(["bar", "grouped_bar", "horizontal_bar"])
 
-        if i == QueryIntent.CORRELATION:
+        elif i == QueryIntent.CORRELATION:
             if len(measures) >= 3:
-                return ["heatmap", "scatter_matrix", "scatter"]
-            return ["scatter", "bubble", "heatmap"]
+                candidates.extend(["heatmap", "scatter_matrix", "scatter"])
+            else:
+                candidates.extend(["scatter", "bubble", "heatmap"])
 
-        if i == QueryIntent.COMPOSITION:
-            # Use a hierarchy-style or space-efficient chart when the primary
-            # dimension has many distinct values, since pie/donut charts become
-            # hard to read with high cardinality.
+        elif i == QueryIntent.COMPOSITION:
             if primary_dim and primary_dim.cardinality > 10:
-                return ["treemap", "sunburst", "horizontal_bar"]
-            return ["pie", "donut", "treemap"]
+                candidates.extend(["treemap", "sunburst", "horizontal_bar"])
+            else:
+                candidates.extend(["pie", "donut", "treemap"])
 
-        if i == QueryIntent.RANKING:
-            return ["horizontal_bar", "bar", "lollipop"]
+        elif i == QueryIntent.RANKING:
+            candidates.extend(["horizontal_bar", "bar", "lollipop"])
 
-        if i == QueryIntent.GEOGRAPHIC:
+        elif i == QueryIntent.GEOGRAPHIC:
             if geo:
-                return ["choropleth", "bubble_map", "bar"]
-            return ["bar", "horizontal_bar"]
+                candidates.extend(["choropleth", "bubble_map", "bar"])
+            else:
+                candidates.extend(["bar", "horizontal_bar"])
 
-        if i == QueryIntent.ANOMALY:
-            return ["box", "scatter", "violin"]
+        elif i == QueryIntent.ANOMALY:
+            candidates.extend(["box", "scatter", "violin"])
 
-        if i == QueryIntent.SUMMARY:
+        elif i == QueryIntent.SUMMARY:
             if temporals and measures:
-                return ["line", "bar", "area"]
-            if measures and dimensions:
-                return ["bar", "horizontal_bar"]
-            if measures:
-                return ["histogram", "box"]
-            return ["bar"]
+                candidates.extend(["line", "bar", "area"])
+            elif measures and dimensions:
+                candidates.extend(["bar", "horizontal_bar"])
+            elif measures:
+                candidates.extend(["histogram", "box"])
+            else:
+                candidates.extend(["bar"])
 
-        # Multi-chart intents: these should typically not hit the single-chart path,
-        # but provide sensible fallback to a summary chart
-        if i in {QueryIntent.MULTI_DIMENSION, QueryIntent.FACETED, QueryIntent.COMBINED}:
-            return ["bar", "line", "scatter"]
-
-        return ["bar", "line", "scatter"]
+        elif i in {QueryIntent.MULTI_DIMENSION, QueryIntent.FACETED, QueryIntent.COMBINED}:
+            candidates.extend(["bar", "line", "scatter"])
+        else:
+            candidates.extend(["bar", "line", "scatter"])
+            
+        # Handle explicit chart override
+        if getattr(intent, 'explicit_chart_type', None):
+            explicit = intent.explicit_chart_type
+            if explicit in candidates:
+                candidates.remove(explicit)
+            candidates.insert(0, explicit)
+            
+        return candidates
 
     def _assign_columns(
         self,
         chart_type: str,
         intent: IntentResult,
         u: DataUnderstanding,
-    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
         targeted = intent.target_columns
 
         def pick(role_list: list[ColumnProfile], prefer: list[str]) -> Optional[str]:
@@ -243,11 +258,14 @@ class ChartRecommendationEngine:
                 if match:
                     return match.name
             return role_list[0].name if role_list else None
+            
+        lat_col = next((c.name for c in u.columns if c.name.lower() in ('lat', 'latitude')), None)
+        lon_col = next((c.name for c in u.columns if c.name.lower() in ('lon', 'longitude', 'lng')), None)
 
         if chart_type in {"histogram", "box", "violin"}:
             y = pick(u.measures, targeted)
             x = pick(u.dimensions, targeted) if chart_type in {"box", "violin"} else None
-            return x, y, None
+            return x, y, None, lat_col, lon_col
 
         if chart_type == "scatter":
             if len(u.measures) >= 2:
@@ -258,23 +276,23 @@ class ChartRecommendationEngine:
                 x = pick(u.dimensions, targeted)
                 y = pick(u.measures, targeted)
             color = pick(u.dimensions, targeted) if u.dimensions else None
-            return x, y, color
+            return x, y, color, lat_col, lon_col
 
         if chart_type == "heatmap":
             x = pick(u.dimensions, targeted)
             y = pick([d for d in u.dimensions if d.name != x] if u.dimensions else [], targeted)
             z = pick(u.measures, targeted)
-            return x, z, y  # color_col used as second dimension
+            return x, z, y, lat_col, lon_col  # color_col used as second dimension
 
         if chart_type in {"pie", "donut", "treemap", "sunburst"}:
             x = pick(u.dimensions, targeted)
             y = pick(u.measures, targeted)
-            return x, y, None
+            return x, y, None, lat_col, lon_col
 
         if chart_type in {"choropleth", "bubble_map"}:
             x = pick(u.geo_columns, targeted) or pick(u.dimensions, targeted)
             y = pick(u.measures, targeted)
-            return x, y, None
+            return x, y, None, lat_col, lon_col
 
         # Default: bar, line, area, horizontal_bar, grouped_bar, lollipop, radar
         if u.temporals and chart_type in {"line", "area"}:
@@ -288,7 +306,7 @@ class ChartRecommendationEngine:
             if second_dim and second_dim.cardinality <= HIGH_CARDINALITY:
                 color = second_dim.name
 
-        return x, y, color
+        return x, y, color, lat_col, lon_col
 
     def _build_titles(
         self,

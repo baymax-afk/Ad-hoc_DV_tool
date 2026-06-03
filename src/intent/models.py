@@ -30,4 +30,5 @@ class IntentResult:
     sort_order: Optional[str] = None        # asc|desc
     top_n: Optional[int] = None
     tier: str = "rule"                      # "rule" or "llm"
+    explicit_chart_type: Optional[str] = None
     raw_llm_response: Optional[dict] = None

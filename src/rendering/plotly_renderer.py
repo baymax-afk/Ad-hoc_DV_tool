@@ -90,6 +90,43 @@ def _normalize_country_name(name: str) -> str:
     return country_aliases.get(name_clean, name_clean)
 
 
+def _normalize_state_name(name: str) -> str:
+    """Normalize US state names to 2-letter postal codes."""
+    if name is None or (isinstance(name, float) and pd.isna(name)):
+        return ""
+    if not isinstance(name, str):
+        return str(name).strip() if str(name).strip() else ""
+    if not name.strip():
+        return ""
+        
+    name_str = name.strip()
+    
+    # Try to extract state code from US address format (e.g., "Dallas, TX 75001")
+    import re
+    match = re.search(r',\s*([A-Z]{2})\s+\d{5}', name_str)
+    if match:
+        return match.group(1)
+    
+    state_aliases = {
+        'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+        'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+        'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+        'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+        'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+        'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+        'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+        'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+        'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+        'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+        'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+        'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+        'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC', 'puerto rico': 'PR'
+    }
+    name_clean = name_str.lower()
+    return state_aliases.get(name_clean, name_str)
+
+
+
 def _try_choropleth(df: pd.DataFrame, spec: ChartSpec, locationmode: str) -> go.Figure | None:
     """Attempt to render choropleth with given location mode. Returns None if fails."""
     try:
@@ -99,6 +136,9 @@ def _try_choropleth(df: pd.DataFrame, spec: ChartSpec, locationmode: str) -> go.
         if locationmode == "country names":
             df_copy[spec.x_col] = df_copy[spec.x_col].apply(_normalize_country_name)
             # Remove empty strings after normalization
+            df_copy = df_copy[df_copy[spec.x_col].str.strip() != ""]
+        elif locationmode == "USA-states":
+            df_copy[spec.x_col] = df_copy[spec.x_col].apply(_normalize_state_name)
             df_copy = df_copy[df_copy[spec.x_col].str.strip() != ""]
         
         if df_copy.empty:
@@ -309,6 +349,21 @@ def _scatter_matrix(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     )
 
 
+US_CITIES = {
+    'dallas': (32.7767, -96.7970),
+    'boston': (42.3601, -71.0589),
+    'los angeles': (34.0522, -118.2437),
+    'san francisco': (37.7749, -122.4194),
+    'seattle': (47.6062, -122.3321),
+    'atlanta': (33.7490, -84.3880),
+    'new york city': (40.7128, -74.0060),
+    'portland': (45.5152, -122.6784),
+    'austin': (30.2672, -97.7431),
+    'chicago': (41.8781, -87.6298),
+    'houston': (29.7604, -95.3698),
+    'miami': (25.7617, -80.1918)
+}
+
 @register("choropleth")
 def _choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     # Try multiple location modes with fallback
@@ -317,16 +372,9 @@ def _choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
         if fig is not None:
             return fig
     
-    # Fallback to bar chart if choropleth fails
-    warnings.warn(
+    raise ValueError(
         f"Could not render choropleth with column '{spec.x_col}'. "
-        "Falling back to bar chart. Ensure location data matches supported format.",
-        UserWarning
-    )
-    return px.bar(
-        df, x=spec.x_col, y=spec.y_col,
-        color_discrete_sequence=THEME["colors"],
-        labels={spec.y_col: spec.y_label or spec.y_col},
+        "Locations did not match any supported geographic standard."
     )
 
 
@@ -334,6 +382,30 @@ def _choropleth(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
 def _bubble_map(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
     try:
         df_copy = df.copy()
+        is_synth = False
+        
+        # Synthesize lat/lon if not provided but we have known US cities
+        if not (spec.lat_col and spec.lon_col):
+            cities_lower = df_copy[spec.x_col].astype(str).str.strip().str.lower()
+            if cities_lower.isin(US_CITIES.keys()).any():
+                df_copy['_lat'] = cities_lower.map(lambda x: US_CITIES.get(x, (None, None))[0])
+                df_copy['_lon'] = cities_lower.map(lambda x: US_CITIES.get(x, (None, None))[1])
+                df_copy = df_copy.dropna(subset=['_lat', '_lon'])
+                if not df_copy.empty:
+                    spec.lat_col = '_lat'
+                    spec.lon_col = '_lon'
+                    is_synth = True
+        
+        if spec.lat_col and spec.lon_col:
+            fig = px.scatter_geo(
+                df_copy, lat=spec.lat_col, lon=spec.lon_col, size=spec.y_col,
+                color=spec.color_col,
+                scope="usa" if is_synth else "world",
+                color_discrete_sequence=THEME["colors"],
+                labels={spec.y_col: spec.y_label or spec.y_col},
+            )
+            return fig
+            
         df_copy[spec.x_col] = df_copy[spec.x_col].apply(_normalize_country_name)
         
         fig = px.scatter_geo(
@@ -345,17 +417,8 @@ def _bubble_map(df: pd.DataFrame, spec: ChartSpec) -> go.Figure:
         )
         return fig
     except (KeyError, ValueError) as e:
-        warnings.warn(
-            f"Could not render bubble map with column '{spec.x_col}'. "
-            "Falling back to scatter plot. {str(e)}",
-            UserWarning
-        )
-        # Fallback to scatter plot
-        return px.scatter(
-            df, x=spec.x_col, y=spec.y_col, size=spec.y_col,
-            color=spec.color_col,
-            color_discrete_sequence=THEME["colors"],
-            labels={spec.y_col: spec.y_label or spec.y_col},
+        raise ValueError(
+            f"Could not render bubble map with column '{spec.x_col}': {str(e)}"
         )
 
 
