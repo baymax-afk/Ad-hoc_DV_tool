@@ -52,6 +52,22 @@ INTENT_PATTERNS: dict[QueryIntent, list[str]] = {
         r"\bsummar(y|ize|ise)\b", r"\boverview\b", r"\bstat(istic)?s\b",
         r"\bdescribe\b", r"\bwhat (is|are)\b", r"\btell me about\b",
     ],
+    # Multi-chart intents
+    QueryIntent.MULTI_DIMENSION: [
+        r"\bby \w+ and \w+\b", r"\bby \w+(?:\s+and|,)\s+by \w+\b",
+        r"\bacross \w+ and \w+\b", r"\b\w+ AND \w+\b",
+        r"\bboth\b.*\bby\b", r"\bfor\s+both\b",
+    ],
+    QueryIntent.FACETED: [
+        r"\bfor each \w+\b", r"\bby each \w+\b",
+        r"\bseparately\b", r"\beach (category|region|product|group)\b",
+        r"\bper \w+\b", r"\bsplit by\b",
+    ],
+    QueryIntent.COMBINED: [
+        r"\btrend.*distribution\b", r"\bdistribution.*trend\b",
+        r"\band\b", r"\bplus\b", r"\bas well as\b",
+        r"\bboth.*and\b", r"\nside.?by.?side\b",
+    ],
 }
 
 AGGREGATION_PATTERNS = {
@@ -88,7 +104,7 @@ class RuleIntentClassifier:
         if confidence < self.CONFIDENCE_THRESHOLD:
             return None
 
-        return IntentResult(
+        return IntentResult(   #here it returns the json format
             intent=best,
             confidence=confidence,
             target_columns=self._extract_columns(q, understanding),

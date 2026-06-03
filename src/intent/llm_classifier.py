@@ -11,22 +11,45 @@ from src.understanding.models import DataUnderstanding
 
 
 SYSTEM_PROMPT = """\
-You are a data visualization intent classifier.
-Given a user query and a dataset schema, extract the visualization intent as structured JSON.
+You are a data visualization intent classifier for a data analysis tool.
+Given a user query, a dataset schema, and optional conversation history, extract the visualization intent as structured JSON.
+
+INTENT TYPES:
+- trend: temporal progression, changes over time
+- comparison: side-by-side values across categories
+- ranking: top/bottom N items, sorting
+- distribution: spread, histogram, variation
+- correlation: relationship between two measures
+- composition: breakdown, parts of a whole (pie, treemap)
+- geographic: maps, choropleth, country/region data
+- anomaly: outliers, unusual patterns
+- summary: overview, key metrics (KPI cards)
+- multi_dimension: multiple dimensions in one view
+- faceted: repeated charts for different groups
+- combined: multiple chart types together
+
+RULE-BASED HINTS:
+Rule-based pre-analysis suggests intent={hint_intent} with confidence={hint_conf}. Use this as a weak signal only.
+
+DATE PARSING:
+Extract any date references from the query into ISO 8601 format and include them in a "date_filter" array inside the "filters" object.
 
 Dataset schema:
 {schema}
 
-Respond ONLY with valid JSON — no markdown, no explanation — matching exactly this structure:
+Conversation history (last 6 turns):
+{history}
+
+Respond ONLY with a valid JSON object (no markdown, no code blocks, no explanation):
 {{
-  "intent": "<distribution|trend|comparison|correlation|composition|ranking|geographic|anomaly|summary>",
-  "confidence": <0.0-1.0>,
-  "target_columns": ["col1", "col2"],
-  "filters": {{"column_name": "value"}},
-  "aggregation": "<sum|avg|count|max|min|null>",
-  "group_by": "<column_name or null>",
-  "sort_order": "<asc|desc|null>",
-  "top_n": <integer or null>
+  "intent": "trend|comparison|ranking|distribution|correlation|composition|geographic|anomaly|summary|multi_dimension|faceted|combined",
+  "confidence": 0.0,
+  "target_columns": [],
+  "filters": {{"date_filter": []}},
+  "aggregation": null,
+  "group_by": null,
+  "sort_order": null, // "asc" for bottom/worst, "desc" for top/best
+  "top_n": null
 }}
 """
 
@@ -35,8 +58,12 @@ class LLMIntentClassifier:
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    def classify(self, query: str, understanding: DataUnderstanding) -> IntentResult:
-        system = SYSTEM_PROMPT.format(schema=understanding.schema_str())
+    def classify(self, query: str, understanding: DataUnderstanding, hint_intent: str = "unknown", hint_conf: float = 0.0, conversation_history: list[dict] = None) -> IntentResult:
+        hist_str = "None"
+        if conversation_history:
+            hist_str = "\\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-6:]])
+        
+        system = SYSTEM_PROMPT.format(schema=understanding.schema_str(), hint_intent=hint_intent, hint_conf=hint_conf, history=hist_str)
         try:
             response = self._client.messages.create(
                 model=settings.llm_model,

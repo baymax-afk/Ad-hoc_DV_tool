@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
 
 import plotly.io as pio
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.core.exceptions import DVToolError, IntentError
 from src.ingestion.ingestor import DataIngestor
@@ -27,6 +31,14 @@ st.set_page_config(
 # ── singleton services ───────────────────────────────────────────────
 @st.cache_resource
 def get_services():
+    import anthropic
+    from src.core.config import settings
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
+    analyst = None
+    if client:
+        from src.insights.analyst import DatasetAnalyst
+        analyst = DatasetAnalyst(client, settings.llm_model)
+
     return {
         "ingestor": DataIngestor(),
         "understanding_engine": DataUnderstandingEngine(),
@@ -35,6 +47,7 @@ def get_services():
         "viz_pipeline": VisualizationPipeline(),
         "stat_analyzer": StatisticalAnalyzer(),
         "narrator": LLMNarrator(),
+        "analyst": analyst,
     }
 
 
@@ -55,6 +68,8 @@ with st.sidebar:
         os.environ["ANTHROPIC_API_KEY"] = api_key
         from src.core import config
         config.settings.anthropic_api_key = api_key
+        # Clear cache to reinitialize services with new API key
+        st.cache_resource.clear()
 
     st.markdown("---")
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
@@ -84,7 +99,19 @@ if uploaded_file is not None:
                 st.session_state["profile"] = profile
                 st.session_state["understanding"] = understanding
                 st.session_state["file_key"] = file_key
-                st.session_state["query_history"] = []
+                
+                if svc["analyst"]:
+                    analysis = asyncio.run(svc["analyst"].analyze_dataset(understanding, profile))
+                else:
+                    analysis = "Enable AI analysis by adding ANTHROPIC_API_KEY to .env"
+                st.session_state["dataset_analysis"] = analysis
+
+                if "messages" not in st.session_state:
+                    st.session_state.messages = []
+                st.session_state.messages.append({
+                    "role": "system",
+                    "content": f"New dataset loaded: {uploaded_file.name} ({profile.row_count:,} rows, {profile.col_count} cols)"
+                })
             except DVToolError as e:
                 st.error(f"Ingestion failed: {e}")
                 st.stop()
@@ -128,125 +155,121 @@ with st.expander("Dataset Schema", expanded=False):
     ]
     st.dataframe(pd.DataFrame(schema_data), use_container_width=True, hide_index=True)
 
+# ── dataset analysis (expandable) ──────────────────────────────────────
+if "dataset_analysis" in st.session_state:
+    with st.expander("Dataset analysis", expanded=True):
+        st.markdown(st.session_state["dataset_analysis"])
+
 st.markdown("---")
 
-# ── query input ───────────────────────────────────────────────────────
-col_q, col_btn = st.columns([5, 1])
-with col_q:
-    query = st.text_input(
-        "Ask a question about your data",
-        placeholder="e.g. Show top 10 categories by revenue",
-        label_visibility="collapsed",
-    )
-with col_btn:
-    run = st.button("Visualize", type="primary", use_container_width=True)
+# ── chat interface ────────────────────────────────────────────────────
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# ── advanced options ──────────────────────────────────────────────────
-with st.expander("Advanced options", expanded=False):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        chart_override = st.selectbox(
-            "Force chart type",
-            ["(auto)"] + svc["viz_pipeline"].supported_chart_types(),
-        )
-    with col2:
-        top_n_override = st.number_input("Limit rows (top N)", min_value=0, value=0, step=5)
-    with col3:
-        agg_override = st.selectbox("Aggregation", ["(auto)", "sum", "avg", "count", "max", "min"])
+# Display past messages
+for i, msg in enumerate(st.session_state.messages):
+    if msg["role"] == "system":
+        st.info(msg["content"])
+    else:
+        with st.chat_message(msg["role"]):
+            if "content" in msg and msg["content"]:
+                st.markdown(msg["content"])
+            if "charts" in msg and msg["charts"]:
+                # Multi-chart tabs
+                if len(msg["charts"]) > 1:
+                    tabs = st.tabs([c["title"] for c in msg["charts"]])
+                    for chart_idx, (tab, chart_data) in enumerate(zip(tabs, msg["charts"])):
+                        with tab:
+                            if chart_data.get("subtitle"):
+                                st.caption(chart_data["subtitle"])
+                            fig = pio.from_json(chart_data["plotly_json"])
+                            st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}_{chart_idx}")
+                else:
+                    chart_data = msg["charts"][0]
+                    if chart_data.get("subtitle"):
+                        st.caption(chart_data["subtitle"])
+                    fig = pio.from_json(chart_data["plotly_json"])
+                    st.plotly_chart(fig, use_container_width=True, key=f"chart_{i}_0")
 
-# ── query execution ───────────────────────────────────────────────────
-if run and query.strip():
-    with st.spinner("Detecting intent…"):
-        try:
-            intent = svc["intent_detector"].detect(query, understanding)
-        except IntentError as e:
-            st.error(f"Could not understand query: {e}")
-            st.stop()
+            if "insights" in msg and msg["insights"]:
+                col_stat, col_narr = st.columns(2)
+                with col_stat:
+                    st.markdown("#### Statistical Findings")
+                    if msg["insights"]["stat"]:
+                        for ins in msg["insights"]["stat"]:
+                            st.markdown(f"• {ins}")
+                    else:
+                        st.info("No significant statistical patterns detected.")
+                with col_narr:
+                    st.markdown("#### AI Insights")
+                    st.markdown(msg["insights"]["ai"])
 
-    spec = svc["chart_engine"].recommend(intent, understanding)
+# Chat input
+if query := st.chat_input("Ask a question about your data"):
+    st.session_state.messages.append({"role": "user", "content": query})
+    st.rerun()
 
-    if chart_override != "(auto)":
-        spec.chart_type = chart_override
-    if top_n_override > 0:
-        spec.top_n = int(top_n_override)
-    if agg_override != "(auto)":
-        spec.aggregation = agg_override
+# Run agent on last message if it's user
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+    query = st.session_state.messages[-1]["content"]
+    with st.chat_message("assistant"):
+        with st.spinner("Analyzing…"):
+            try:
+                history = [m for m in st.session_state.messages if m["role"] in ["user", "assistant"]]
+                intent = svc["intent_detector"].detect(query, understanding, conversation_history=history)
+                specs = svc["chart_engine"].recommend(intent, understanding)
+                
+                results = svc["viz_pipeline"].run(profile, specs)
+                
+                if not specs:
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": "Could not determine a suitable chart for this query.",
+                    })
+                    st.rerun()
 
-    with st.spinner("Rendering chart…"):
-        render_result = svc["viz_pipeline"].execute(profile, spec)
+                top_spec = specs[0]
+                stat_insights = svc["stat_analyzer"].analyze(profile.df, understanding, top_spec)
+                
+                if svc["analyst"]:
+                    ai_insight = asyncio.run(svc["analyst"].analyze_query_result(query, understanding, stat_insights, top_spec))
+                else:
+                    ai_insight = "Enable AI analysis by adding ANTHROPIC_API_KEY to .env"
 
-    # Chart
-    st.markdown(f"### {spec.title}")
-    if spec.subtitle:
-        st.caption(spec.subtitle)
+                charts_data = []
+                for spec, fig in results:
+                    charts_data.append({
+                        "title": spec.title or spec.chart_type,
+                        "subtitle": spec.subtitle,
+                        "plotly_json": fig.to_json()
+                    })
 
-    fig = pio.from_json(render_result["plotly_json"])
-    st.plotly_chart(fig, use_container_width=True)
+                insights_data = {
+                    "stat": [f"[{i.severity}] {i.description}" for i in stat_insights],
+                    "ai": ai_insight
+                }
 
-    # Alternatives
-    if spec.alternatives:
-        alt_cols = st.columns(min(len(spec.alternatives), 4))
-        for i, alt in enumerate(spec.alternatives[:4]):
-            with alt_cols[i]:
-                if st.button(f"Try: {alt.replace('_', ' ').title()}", key=f"alt_{alt}_{i}"):
-                    spec.chart_type = alt
-                    render_result = svc["viz_pipeline"].execute(profile, spec)
-                    fig = pio.from_json(render_result["plotly_json"])
-                    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-
-    # Insights
-    stat_insights = svc["stat_analyzer"].analyze(profile.df, understanding, spec)
-
-    col_stat, col_narr = st.columns(2)
-
-    with col_stat:
-        st.markdown("#### Statistical Findings")
-        if stat_insights:
-            severity_icon = {"warning": "⚠️", "notable": "💡", "info": "ℹ️"}
-            for ins in stat_insights:
-                icon = severity_icon.get(ins.severity, "•")
-                st.markdown(f"{icon} {ins.description}")
-        else:
-            st.info("No significant statistical patterns detected.")
-
-    with col_narr:
-        st.markdown("#### AI Insights")
-        if not api_key:
-            st.info("Add your Anthropic API key in the sidebar to enable AI narrative insights.")
-        else:
-            with st.spinner("Generating insights…"):
-                narrative = svc["narrator"].narrate(stat_insights, spec, understanding)
-            if narrative:
-                for i, point in enumerate(narrative, 1):
-                    st.markdown(f"**{i}.** {point}")
-            else:
-                st.info("No narrative insights generated.")
-
-    # Query metadata
-    with st.expander("Query details", expanded=False):
-        st.json({
-            "intent": intent.intent.value,
-            "confidence": round(intent.confidence, 2),
-            "tier": intent.tier,
-            "chart_type": spec.chart_type,
-            "x_col": spec.x_col,
-            "y_col": spec.y_col,
-            "color_col": spec.color_col,
-            "aggregation": spec.aggregation,
-            "filters": spec.filters,
-            "top_n": spec.top_n,
-        })
-
-    # History
-    if "query_history" not in st.session_state:
-        st.session_state["query_history"] = []
-    st.session_state["query_history"].append(query)
-
-# ── query history ─────────────────────────────────────────────────────
-if st.session_state.get("query_history"):
-    with st.sidebar:
-        st.markdown("### Recent Queries")
-        for q in reversed(st.session_state["query_history"][-5:]):
-            st.markdown(f"- {q}")
+                content = f"Based on your query, here is the analysis."
+                
+                # Update session state messages
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": content,
+                    "charts": charts_data,
+                    "insights": insights_data
+                })
+                
+                st.rerun()
+            except IntentError as e:
+                st.error(f"Could not understand query: {e}")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Could not understand query: {e}",
+                })
+                # Don't rerun, just show the error in the current flow
+            except Exception as e:
+                st.error(f"Error processing query: {e}")
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"Error processing query: {e}",
+                })

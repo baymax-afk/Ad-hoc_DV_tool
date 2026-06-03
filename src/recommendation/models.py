@@ -19,3 +19,15 @@ class ChartSpec:
     alternatives: list[str] = field(default_factory=list)
     x_label: Optional[str] = None
     y_label: Optional[str] = None
+
+
+@dataclass
+class MultiChartSpec:
+    """Multi-chart specification for compound visualizations."""
+    specs: list[ChartSpec]              # Individual chart specs
+    layout_type: str = "grid"           # grid|row|column|faceted
+    title: str = ""
+    subtitle: Optional[str] = None
+    grid_cols: int = 2
+    combine_legend: bool = True         # Show single legend for all charts
+

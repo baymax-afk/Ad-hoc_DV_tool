@@ -25,11 +25,12 @@ print(f"Temporals: {[t.name for t in understanding.temporals]}")
 intent = IntentDetector().detect("show revenue by region", understanding)
 print(f"Intent: {intent.intent.value} (confidence={intent.confidence:.2f}, tier={intent.tier})")
 
-spec = ChartRecommendationEngine().recommend(intent, understanding)
+specs = ChartRecommendationEngine().recommend(intent, understanding)
+spec = specs[0]
 print(f"Chart: {spec.chart_type}, x={spec.x_col}, y={spec.y_col}")
 
-result = VisualizationPipeline().execute(profile, spec)
-print(f"Render OK: chart_type={result['chart_type']}, rows_rendered={result['row_count_rendered']}")
+results = VisualizationPipeline().run(profile, specs)
+print(f"Render OK: charts_rendered={len(results)}")
 
 insights = StatisticalAnalyzer().analyze(profile.df, understanding, spec)
 print(f"Insights: {len(insights)} findings")

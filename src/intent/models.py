@@ -13,6 +13,10 @@ class QueryIntent(str, Enum):
     GEOGRAPHIC = "geographic"
     ANOMALY = "anomaly"
     SUMMARY = "summary"
+    # Multi-chart intents
+    MULTI_DIMENSION = "multi_dimension"     # "by region AND product"
+    FACETED = "faceted"                     # "for each category"
+    COMBINED = "combined"                   # "trend + distribution"
 
 
 @dataclass
